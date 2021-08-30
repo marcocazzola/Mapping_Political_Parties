@@ -1,0 +1,606 @@
+---
+title: "Mapping EU Political Parties"
+author: "Marco Cazzola"
+date: "Matr: 964573"
+output: pdf_document
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(reshape2)
+library(factoextra)
+library(dendextend)
+```
+
+# Abstract
+
+In the following, we will use data from the Chapel Hill Expert Survey to map political parties onto a simple bi-dimensional space. We will then compare the parties’ position in this space with their membership group in the European Parliament, to assess if there is some correspondence between the two. Finally, we will perform k-means and hierarchical clustering, and once again compare the resulting clusters with the European Parliament group membership, to see if clusters reflect somehow the ideological partition of parties. 
+
+# Data definition
+
+The Chapel Hill expert surveys estimate party positioning on European integration, ideology and policy issues for national parties in a variety of European countries. The first survey was conducted in 1999, and all the data sets are freely available on the [Chapel Hill website](https://www.chesdata.eu/our-surveys). For our analysis, we used a subset of the data from the 2019 survey, where 421 experts evaluated 277 parties in all EU countries plus Norway, Switzerland, Turkey and some other prospective EU members.\
+Unfortunately, Chapel Hill survey does not come with parties’ EU parliamentary membership, so we had to retrieve that information from another source, that is [Europe Elects website](https://europeelects.eu/).\
+The match between the two information was made manually, so missing values were already filtered out and we can be sure the data set we will use in this analysis is complete and consistent. More precisely, the data set consists of 237 political parties (there were some missing values and some non-EU countries), for each of which we reported the following information:
+
+* `Country`: the party's country of origin
+* `party`: the party’s acronym
+* `EU_Membership`: the party’s membership in the EU Parliament. Besides *Unaffiliated* (parties that are not present in the EU Parliament and have no affiliation) and *Non-Inscrits* (parties in the EU Parliament but with no membership), there are seven EU parliamentary groups, that are: 
+    * *GUE/NGL (Gauche Unitaire Européenne/Nordic Green Left)*: left-wing EU parties
+    * *The Greens*: green (eco-socialist) EU parties
+    * *S&D (Socialists and Democrats)*: center-left EU parties
+    * *Renew Europe*: liberal (centrist) EU parties
+    * *EPP (European People’s Party)*: center-right EU parties
+    * *ECR (European Conservatives and Reformists)*: conservative EU parties
+    * *ID (Identity and Democracy)*: right-wing EU parties
+* `eu_position`: overall orientation of the party leadership towards European integration.\
+Ranges from 1 (Strongly opposed) to 7 (Strongly in favor).
+* `galtan`: position of the party in terms of their views on social and cultural values.\
+Ranges from 0 (Libertarian/Postmaterialist) to 10 (Traditional/Authoritarian). “Libertarian” or “postmaterialist” parties favor expanded personal freedoms, for example, abortion rights, divorce, and same-sex marriage. “Traditional” or “authoritarian” parties reject these ideas in favor of order, tradition, and stability, believing that the government should be a firm moral authority on social and cultural issues.
+* `immigrate_policy`: position on immigration policy.\
+Ranges from 0 (Strongly favors a liberal policy on immigration) to 10 (Strongly favors a restrictive policy on immigration).
+* `multiculturalism`: position on integration of immigrants and asylum seekers.\
+Ranges from 0 (Strongly favors multiculturalism) to 10 (Strongly favors assimilation).
+* `redistribution`: position on redistribution of wealth from the rich to the poor.\
+Ranges from 0 (Strongly favors redistribution) to 10 (Strongly opposes redistribution).
+* `environment`: position towards environmental sustainability.\
+Ranges from 0 (Strongly supports environmental protection even at the cost of economic growth) to 10 (Strongly supports economic growth even at the cost of environmental protection).
+* `spendvtax`: position on improving public services vs reducing taxes.\
+Ranges from 0 (Strongly favors improving public services) to 10 (Strongly favors reducing taxes).
+* `econ_interven`: position on state intervention in the economy.\
+Ranges from 0 (Fully in favor of state intervention) to 10 (Fully opposed to state intervention).
+* `civlib_laworder`: position on civil liberties vs law and order.\
+Ranges from 0 (Strongly promotes civil liberties) to 10 (Strongly supports tough measures to fight crime).
+* `sociallifestyle`: position on social lifestyle (e.g. rights for homosexuals, gender equality).\
+Ranges from 0 (Strongly supports liberal policies) to 10 (Strongly opposes liberal policies). 
+* `religious_principles`: position on the role of religious principles in politics.\
+Ranges from 0 (Strongly opposes religious principles in politics) to 10 (Strongly supports religious principles in politics). 
+* `ethnic_minorities`: position towards ethnic minorities.\
+Ranges from 0 (Strongly supports more rights for ethnic minorities) to 10 (Strongly opposes more rights for ethnic minorities).
+* `nationalism`: position towards cosmopolitanism vs nationalism.\
+Ranges from 0 (Strongly promotes cosmopolitanism) to 10 (Strongly promotes nationalism).
+* `urban_rural`: position on urban vs rural interests.\
+Ranges from 0 (Strongly supports urban interests) to 10 (Strongly supports rural interests).
+* `protectionism`: position towards trade liberalization vs protectionism.\
+Ranges from 0 (Strongly favors trade liberalization) to 10 (Strongly favors protection of domestic producers).
+* `regions`: position on political decentralization to regions localities.\
+Ranges from 0 (Strongly favors political decentralization) to 10 (Strongly opposes political decentralization).
+
+Further information about how the data were collected and other variables considered by the survey can be found in the online CHES [codebook](https://static1.squarespace.com/static/5975c9bfdb29d6a05c65209b/t/5fa04ec05d3c8218b7c91450/1604341440585/2019_CHES_codebook.pdf). 
+
+\newpage
+
+# Descriptive statistic
+
+As a first insight, let's see how parties are distributed across the different parliamentary groups. 
+
+```{r EU_Membership}
+dta <- read.csv("Reduced_CHES.csv",
+                 sep="\t", dec=',') 
+dta$EU_Membership <- factor(dta$EU_Membership)
+
+members <- dta %>%
+  group_by(EU_Membership) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+
+ggplot(data=members, aes(x=reorder(EU_Membership,n), y=n, fill=EU_Membership)) +
+  geom_bar(stat="identity") + 
+  scale_fill_manual(name='EU Membership', values=c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                                                  "azure3", "#FDD011", "#FC0603", "azure4")) +
+  geom_text(aes(label=n), hjust=-0.3, size=3.5)+
+  theme_minimal() + coord_flip() + theme(legend.position='none') + xlab('') + ggtitle("Groups cardinality")
+```
+
+Only a minority of the parties in our data set are Non-Inscrits or Unaffiliated. The most numerous groups are EPP, Renew Europe and S&D, which represent the center-right, center and center-left political area respectively. More "extremist" groups are well behind those three, with ID being the smallest group among all. 
+
+We now move on to consider how parties are distributed across the different features of the data set. 
+
+```{r DistrPlots, fig.height=7}
+ggplot(gather(dta[,-c(1:3)]), aes(value)) + 
+  geom_histogram(aes(y=..density..), bins=15,
+                 colour="black", fill="white") + 
+  geom_density(alpha=.2, fill="#FF6666") +
+  facet_wrap(~key, scales='free_y', ncol=4) + xlab('')
+```
+
+Most of the variables are fairly normally distributed, even though in most cases the top of the bell is somehow flattened. `galtan` is more uniformly distributed, even though low values (associated with stronger libertarian attitude) seem to be more frequent. `immigrate_policy`, `multiculturalism` and `nationalism` show a similar distribution to each other, where extreme large values are much more frequent than extreme low values, meaning that while there are few parties favoring a liberal policy on immigration, multiculturalism and cosmopolitanism, there are much more parties promoting restrictive policies on immigration, supporting assimilation and nationalism. A similar, even though less pronounced, pattern can be seen also for `civlib_laworder` and `ethnic_minorities`. Finally, most of European parties agree on supporting a stronger European integration (recall in fact this is the only variable ranging from 1 to 7, and not from 0 to 10). 
+
+\newpage
+
+We now consider if groups differ significantly on each of these aspects. For the sake of a simpler representation, we will ignore Unaffiliated and Non-Inscrits parties; for each of the remaining groups, we compute the mean of each feature and plot the results below. 
+
+```{r MeansPlots, fig.height=7}
+#data to be plotted
+means <- dta %>% 
+  filter(EU_Membership != 'Unaffiliated', EU_Membership != 'NI (Non Inscrits)') %>%
+  group_by(EU_Membership) %>%
+  summarise(across(colnames(dta)[-c(1:3)],mean)) %>%
+  gather(Index, Value, 2:18)
+
+#Plot 1
+means.1 <- means %>% filter(Index=='redistribution' | Index=='deregulation' | Index=='econ_interven' | Index=='spendvtax' | Index=='protectionism') 
+means.plot.1 <- ggplot(means.1, aes(x=Index, y=Value, fill=EU_Membership)) + xlab(element_blank()) + ylab('Mean Value') +
+  geom_bar(stat='identity', color="black", position=position_dodge()) +
+  scale_fill_manual(name='EU Membership',
+                    values=c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                             "#FDD011", "#FC0603")) + theme_minimal() + theme(legend.position = 'top', legend.title = element_blank(), legend.text = element_text(size=6))
+#Plot 2
+means.2 <- means %>% filter(Index=='immigrate_policy' | Index=='multiculturalism' | Index=='ethnic_minorities' | Index=='nationalism') 
+means.plot.2 <- ggplot(means.2, aes(x=Index, y=Value, fill=EU_Membership)) + xlab(element_blank()) + ylab('Mean Value') +
+  geom_bar(stat='identity', color="black", position=position_dodge()) +
+  scale_fill_manual(name='EU Membership',
+                    values=c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                             "#FDD011", "#FC0603")) + theme_minimal() + theme(legend.position = 'top', legend.title = element_blank(), legend.text = element_text(size=6))
+
+#Plot 3
+means.3 <- means %>% filter(Index=='galtan' | Index=='religious_principles' | Index=='sociallifestyle' | Index=='civlib_laworder') 
+means.plot.3 <- ggplot(means.3, aes(x=Index, y=Value, fill=EU_Membership)) + xlab(element_blank()) + ylab('Mean Value') +
+  geom_bar(stat='identity', color="black", position=position_dodge()) +
+  scale_fill_manual(name='EU Membership',
+                    values=c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                             "#FDD011", "#FC0603")) + theme_minimal() + theme(legend.position = 'top', legend.title = element_blank(), legend.text = element_text(size=6))
+
+#Plot 4
+means.4 <- means %>% filter(Index=='regions' | Index=='urban_rural' | Index=='eu_position' | Index=='environment') 
+means.plot.4 <- ggplot(means.4, aes(x=Index, y=Value, fill=EU_Membership)) + xlab(element_blank()) + ylab('Mean Value') +
+  geom_bar(stat='identity', color="black", position=position_dodge()) +
+  scale_fill_manual(name='EU Membership',
+                    values=c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                             "#FDD011", "#FC0603")) + theme_minimal() + theme(legend.position = 'top', legend.title = element_blank(), legend.text = element_text(size=6))
+
+ggarrange(means.plot.1, means.plot.2, means.plot.3, means.plot.4, 
+          nrow=4, common.legend=T, legend='top')
+```
+
+To simplify the analysis, we tried to order the variables according to their semantic field: 
+
+* **First line: Economic issues**. Here we can notice an interesting pattern which is completely missing in all the other lines: S&D and Liberals differ for each of the variables in that line, while in all the other cases the two are quite aligned. This suggests that S&D and liberals tend to share the same cultural values, while they have rather different views for what concerns the economy. In this first line, liberals seem to be more similar to EPP, which in turn is quite on the same level of ECR in most cases. The most striking difference we observe is the one among GUE/NGL and ID, which in fact are at the opposite extremes of our political compass: nonetheless, the two show an interesting contact point in `protectionism`. 
+* **Second line: Globalization issues**. Here we see a pattern that is repeated also in the following line: Greens and GUE/NGL show the smallest values for those variables, followed by S&D and liberals. On the contrary, center-right (EPP) and right-wing (ID and ECR) parties all have a mean value which is above 5, with the largest values associated to ECR and ID. 
+* **Third line: Cultural issues**. As anticipated, here we see the same pattern as in the second line. In particular, we can notice the extremely small values for GUE/NGL (especially in `religious_principles`) and the extremely large values for ID (especially in `civlib_laworder` and `galtan`). Considering the fact that these are *mean* values, it means parties of these groups are all quite extremes for what concerns those two aspects.
+* **Fourth line: Other issues**. Groups are rather similar for what concerns `regions` and `urban_rural`, with left parties slightly favoring decentralization and urban interest with respect to right parties. Greens are clearly the ones most strongly in favor of environmental protection, while ID is showing the most extreme opposite value. Interestingly, EPP, S&D, Liberals and Greens are on the same line for what regards European integration, while ID is once again the most extreme value in the opposite direction. Notably, `eu_position` is the only variable where the views of EPP and ECR differ significantly and, on the contrary, GUE/NGL and ID show an unusual contact point. 
+
+Finally, let's verify, through the use of a correlation matrix, if parties' positions across different features of the data set are correlated. 
+
+```{r CorrMatrix}
+cor(dta[,-c(1:3)]) %>%
+  corrplot(type="upper",tl.col="black",tl.srt=45)
+```
+
+The correlation matrix highlights how most of our features are highly correlated. In particular, `galtan` (second row) shows a strong correlation with most of the features with the exception of `redistribution`, `spendvtax`, `deregulation`, `econ_interven`, `protectionism` and `regions`. On the contrary, `redistribution` is strongly correlated with `spendvtax`, `deregulation` and `econ_interven`: these four variables are in fact all related to the economic field. The variables that are more independent from the others are `regions` and `urban_rural`, even though the latter shows a certain positive correlation with the “cultural” variables, especially `galtan`, meaning that traditionalists/authoritarians prefer the countryside and libertarians/postmaterialists prefer the city. Also `eu_position` and `protectionism` are quite independent from the other variables, but there seems to be a negative correlation between the two: this makes sense, as a stronger European integration (higher score on `eu_position`) comes necessarily at the cost of protection of domestic producers (higher score on `protectionism` scale). 
+
+# Principal Component Analysis
+
+Principal Component Analysis is an unsupervised technique which allows to obtain low-dimensional representation of the data, and it is particularly effective when the features are correlated across each other, as we have seen before. Since we have 17 features for each of the parties in the data set, it would be interesting to see the position of the parties in a bi-dimensional space, and then check if there is some correspondence between this position and the parties’ membership in the EU Parliament.\
+Since not all the variables are measured on the same scale (`eu_position` ranges from 1 to 7, all the others from 0 to 10), we compute the principal components starting from the correlation matrix. As a rule of thumb, it is advisable to retain only the principal components whose eigenvalue is larger than 1:
+
+
+```{r ScreePlot}
+pca.out <- princomp(dta[,-c(1:3)], cor=T)
+
+screeplot(pca.out, type='lines', main = 'Scree plot')
+abline(h=1, col='red', lwd=2)
+```
+
+The third principal component is right at the threshold specified before. Nonetheless, we would say two components are sufficient to adequately represent the data set variability. In order to have further information about the explanatory power of the first two components, we look at the proportion of variance explained by each of them. 
+
+```{r PVE, fig.height=4}
+var <- data.frame(Variance = pca.out$sdev^2, 
+                  PVE = (pca.out$sdev^2/sum(pca.out$sdev^2))*100)
+
+ggplot(var[1:5,], aes(x=rownames(var)[1:5], y=PVE)) +
+  geom_bar(stat='identity', fill = 'steelblue') + theme_minimal() +
+  geom_text(aes(label=paste0(round(PVE,2),'%')), 
+            vjust = -0.3, size=3.5) + xlab('Components')
+```
+
+With just the two first principal components, we are able to explain approximately 80% of the variance present in the data set: we are pretty satisfied with this result, and so we keep just the first two principal components, which moreover allows for a nice representation in a bi-dimensional space. 
+
+In order to properly interpret the position of the parties in the subspace spanned by the first two principal components' loadings, we should look at the correlation between the components and the original variables.
+
+```{r CorrComp, fig.height=3}
+corr.comp <- data.frame(Comp.1 = round(-pca.out$loadings[,1]*pca.out$sdev[1], 3),
+                        Comp.2 = round(pca.out$loadings[,2]*pca.out$sdev[2], 3)) %>%
+  mutate(Communality = round(Comp.1^2 + Comp.2^2,3)) %>%
+  as.matrix()
+
+corrplot(t(corr.comp), method='number', is.corr=F, tl.col="black", tl.srt=45, number.cex=0.7)
+```
+
+The first principal component is correlated more strongly with `galtan`, `immigrate_policy`, `multiculturalism`, `environment`, `civlib_laworder`, `sociallifestyle`, `religious_principles`, `ethnic_minorities` and `nationalism`. On the contrary, the second principal component is mainly correlated with the variable whose association with the first principal component was weaker. These are `redistribution`, `spendvtax`, `deregulation`, `econ_interven` and `protectionism`. The communality line highlights how we are able to capture most of the variation for almost each of the features; the ones for which the dimensionality reduction perform worst are `regions`, `urban_rural` and `eu_position`.\
+We can give the following interpretation of the components: the first is related to cultural values, while the second is associated with economic policies. Basing on the terminology used when defining `galtan` variable, we can say that a first large principal component is associated with an authoritarian/traditionalist approach, while a lower (and possibly negative) values for that component means a libertarian/postmaterialist attitude. For what regards the second principal component, also here largest values are associated with conservative views on the economy (e.g. against redistribution and in favor of deregulation), while smaller values means a more leftist approach to the economy (e.g. investing in public services and in favor of state intervention in the economy). 
+On the contrary, we do not retain much information about `regions`, `urban_rural` and `eu_position`.\
+
+To confirm this interpretation, we plot below the loadings of the two components we have just selected. For a simpler representation, we also colored them according to the semantic field already used in the descriptive statistics paragraph. 
+
+```{r Loadings}
+load <- cbind(-pca.out$loadings[,1], pca.out$loadings[,2]) %>% 
+  as.data.frame()
+colnames(load) <- c("Comp.1", "Comp.2")
+load$Semantic.Field <- c("Others", "Culture", "Globalization", "Globalization", 
+                "Economy", "Others", "Economy", "Economy", "Economy", 
+                "Culture", "Culture", "Culture", "Globalization", "Globalization",
+                "Others", "Economy", "Others") %>%
+  factor()
+
+ggplot(load, aes(x=Comp.1, y =Comp.2, color=Semantic.Field)) + 
+  geom_point(shape=19) + geom_hline(aes(yintercept = 0), linetype='dashed') +
+  geom_vline(aes(xintercept = 0), linetype='dashed') + theme_minimal() + 
+  geom_text_repel(label=rownames(load), show.legend = F) + scale_colour_brewer(palette="Set1")
+```
+
+Indeed, we see that all the features related to cultural and globalization issues are more or less in the same location, together with `environment`. Also `urban_rural` is on a similar spot, even though the association with the first principal component is certainly weaker. All the economic variables have a similar position in this subspace as well, and we can see those vectors point in a different direction than the other ones. However, the fact they are all in the first quadrant seems to suggest there is a slight correlation between holding traditional/authoritarian values and being conservative also for what concerns the economy. On the contrary, `eu_position` is in the second quadrant, meaning that those supporting EU integration typically hold more libertarian/postmaterialist values. However, the second principal component's loading is smaller for `eu_position` than the other economic variables, so probably it is better to exclude `eu_position` from the interpretation of the second principal component, as the correlation table of before suggested. Notably, `protectionism` is in the opposite quadrant than the other economic variables because it is negatively correlated with the second principal component. Finally, we can really say little about `regions`, whose loadings are in fact similarly small for both the principal components.
+
+We now plot the parties in the subspace spanned by the principal component's loadings vectors, to see if there is some correspondence between the parties' EU parliamentary membership and their position in the subspace. 
+
+```{r Scores, fig.height=6}
+comps <- data.frame(cbind(-pca.out$scores[,1], pca.out$scores[,2]))
+
+fviz_cluster(object = list(data= dta[,-c(1:3)], cluster = dta$EU_Membership), main='Parties position in the PC space',
+                          geom = 'point', shape=19, ggtheme = theme_minimal(), show.clust.cent=FALSE, pointsize=2) +
+  scale_color_manual(name='EU Membership',
+                     values=c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                              "azure3", "#FDD011", "#FC0603", "azure4")) + 
+  scale_fill_manual(name='EU Membership',
+                     values=c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                              "azure4", "#FDD011", "#FC0603", "azure3")) +
+  geom_hline(aes(yintercept=0), linetype='dashed') +
+  geom_vline(aes(xintercept=0), linetype='dashed') + theme(legend.position = 'top', legend.title = element_blank(), legend.text = element_text(size=6))
+```
+
+First of all, we see there is much overlapping between the groups, especially at the center. The two groups at the extremes of our political compass (GUE/NGL and ID) are instead well separated. Focusing now on the first principal component, we notice that most of left parties (GUE/NGL, S&D and Greens) are indeed on the left, while right parties (EPP, ECR, ID) are mainly on the right. In fact: 
+
+```{r Comp.1}
+dta <- cbind(dta, "Comp.1" = -pca.out$scores[,1], "Comp.2" = pca.out$scores[,2])
+
+#Left wing parties with comp 1 > 0
+left.outliers <- dta %>% 
+  filter(Comp.1 > 0 & (EU_Membership=='Greens' | EU_Membership=='S&D (Centre-left)' | EU_Membership=='GUE/NGL (Left wing)')) %>%
+  nrow()
+#Number of left wing parties
+left.parties <- dta %>%
+  filter(EU_Membership=='Greens' | EU_Membership=='S&D (Centre-left)' | EU_Membership=='GUE/NGL (Left wing)') %>%
+  nrow()
+#Proportion
+print(paste('Only', left.outliers, 'out of', left.parties, 'left parties have a positive first PC'))
+
+#Right wing parties with comp 1 < 0
+right.outliers <- dta %>% 
+  filter(Comp.1 < 0 & (EU_Membership=='ECR (Conservative nationalists)' | EU_Membership=='EPP (Centre-right)' | EU_Membership=='ID (Right wing)')) %>%
+  nrow()
+#Number of left wing parties
+right.parties <- dta %>%
+  filter(EU_Membership=='ECR (Conservative nationalists)' | EU_Membership=='EPP (Centre-right)' | EU_Membership=='ID (Right wing)') %>%
+  nrow()
+#Proportion
+print(paste('Only', right.outliers, 'parties out of', right.parties, 'right parties have a negative first PC'))
+```
+
+Let's see now in detail who are these outliers. 
+
+```{r Outliers}
+left.outliers <- dta %>% 
+  filter(Comp.1 > 0 & (EU_Membership=='Greens' | EU_Membership=='S&D (Centre-left)' | EU_Membership=='GUE/NGL (Left wing)')) %>%
+  select(Country, party, EU_Membership)
+
+right.outliers <- dta %>% 
+  filter(Comp.1 < 0 & (EU_Membership=='ECR (Conservative nationalists)' | EU_Membership=='EPP (Centre-right)' | EU_Membership=='ID (Right wing)')) %>%
+  select(Country, party, EU_Membership)
+
+rbind(right.outliers, left.outliers)
+```
+
+All right outlier parties are from EPP, which is indeed the most moderate group among the three constituting the right political area of the EU Parliament. Also most of left outliers are from S&D, which is itself more moderate than the Greens and GUE/NGL. 
+
+Recall now the second principal component is related to the economy: the largest it is, the more conservative are the views on the economy. In fact, the GUE/NGL group (which is the leftiest) shows the lowest scores on the vertical axis, while being more or less aligned with S&D for what concerns the first principal component, related to cultural values. The same pattern can be seen on the right, where all but one party of ID have a negative value for the second principal component, differently from the EPP, where most of parties are on the positive side of the vertical axis. Indeed, the position of liberals reflects what we have said in the descriptive statistics: while sharing progressive values from a cultural point of view, they have much more conservative views for what concerns the economy. In fact: 
+
+```{r Liberals}
+lib.r <- dta %>% filter(EU_Membership=='Renew Europe (Liberal)', Comp.1 > 0) %>% nrow()
+lib.l <- dta %>% filter(EU_Membership=='Renew Europe (Liberal)', Comp.1 < 0) %>% nrow()
+#Proportion 
+print(paste(lib.l, 'parties out of', lib.r+lib.l, 'liberal parties have a negative first PC'))
+print(paste(lib.r, 'parties out of', lib.r+lib.l, 'liberal parties have a positive first PC'))
+
+#Liberals - second PC
+lib.u <- dta %>% filter(EU_Membership=='Renew Europe (Liberal)', Comp.2 > 0) %>% nrow()
+lib.d <- dta %>% filter(EU_Membership=='Renew Europe (Liberal)', Comp.2 < 0) %>% nrow()
+#Proportion 
+print(paste(lib.d, 'parties out of', lib.u+lib.d, 'liberal parties have a negative second PC'))
+print(paste(lib.u, 'parties out of', lib.u+lib.d, 'liberal parties have a positive second PC'))
+```
+
+\newpage
+
+##### Focus on Italy. 
+
+It would be interesting to see where parties we are more familiar with lie in this subspace. We therefore focus on Italian parties, whose scores are plotted below. 
+
+```{r ITScores}
+IT <- dta[69:76,] %>%
+  select(party, EU_Membership, Comp.1, Comp.2)
+
+ggplot(IT, aes(x=Comp.1, y=Comp.2, color=EU_Membership)) + 
+  geom_point(aes(color=EU_Membership), size=2) +  
+  geom_hline(aes(yintercept=0), lty='dashed') + theme_minimal() +
+  geom_vline(aes(xintercept=0), lty='dashed') + geom_text_repel(label=IT$party, show.legend = F) +
+  scale_color_manual(name='EU Membership',
+                     values=c("#0105F4","#32A1FE","#900000",
+                              "#050505","azure3", "#FDD011", "#FC0603"))
+```
+
+Indeed, the pattern we observe in Italy is the same as before: right parties are on the positive side of the horizontal axis, while left parties are on the negative one. In the same way, more moderate parties (PD, FI, SVP) and liberals (RI) have a positive second principal component, while more extremist ones (SI, M5S, LN and FdI) are distributed in the last two quadrant. M5S has always been a hard party to classify, but according to this analysis falls in the left-field, both for what concerns the economy and cultural issues. 
+
+\newpage
+
+# K-means clustering
+
+K-means clustering is an unsupervised learning algorithm which divides the observations of a data set into K distinct clusters and assign each observation to one and just one of these clusters. When performing K-means clustering, a crucial choice is the one of K, that is the number of clusters in which we want the data set to be partitioned.\
+Since we expect the observations inside a certain cluster to be similar to each other, we could select a K such that the within-cluster variation is small enough. There are many ways in which we can define the within-cluster variation, but the most common choice is to consider Euclidean distance as a measure of similarity between observations. We therefore define the within-cluster variation as the sum of the pairwise squared Euclidean distances between the observations in the same cluster, divided by the cardinality of that cluster.\
+We now perform K-means clustering with different values of K and see how the total within-cluster variation evolves as K increases.
+
+```{r SelectingK}
+#Retrieving the original dataframe
+dta$Comp.1 <- NULL
+dta$Comp.2 <- NULL
+
+tot.withinss <- NULL
+
+for (k in 1:10) {
+  set.seed(123)
+  km.out <- kmeans(dta[,-c(1:3)], k, nstart = 50)
+  tot.withinss[k] <- km.out$tot.withinss
+}
+
+plot(1:10, tot.withinss, type='b', xlab='Nr of clusters')
+```
+
+Five clusters seems to be the optimal trade-off between reducing the within-cluster variation and obtaining interpretable results. We therefore compute 5-means clustering partitioning and plot the results in the principal components space. 
+
+```{r PCSpace1}
+set.seed(123)
+km.out <- kmeans(dta[,-c(1:3)], 5, nstart = 50)
+
+fviz_cluster(km.out, data=dta[,-c(1:3)], 
+                             geom = "point", main = 'K-means clusters',
+                             repel = F) +
+  theme_minimal() + geom_vline(xintercept = 0, lty="dashed") +
+  geom_hline(yintercept = 0, lty="dashed")
+```
+
+Notice how, differently from the partition given by the EU parliamentary membership, K-means clusters are in general well separated, with just little overlapping between cluster 3-1 and 1-2. Moreover, the interpretation is very simple: clusters are mainly distributed along the horizontal axis, that is the one related to cultural values, so that 
+
+* **Cluster 3** groups together the left-wing parties
+* **Cluster 1** is related to center-left parties
+* **Cluster 2** gathers center-right parties
+* **Cluster 5** regards most right-wing parties
+* Having in most cases a negative first principal component and a large positive second component, **Cluster 4** is probably related to liberals. 
+
+Let's now see if there is actually some correspondence between K-means clusters and EU parliamentary groups. 
+
+```{r Heatmap1}
+df <- melt(table("EU_Membership"=dta$EU_Membership, "Cluster"=km.out$cluster))
+
+ggplot(df, aes(Cluster, EU_Membership, fill=value)) + geom_tile(color='black') +
+  geom_text(aes(label = value), color = "black", size = 4) + scale_fill_gradient(low="white",high="brown3") + 
+  theme_minimal()
+```
+
+Indeed, almost all Green and GUE/NGL parties flow into cluster 3, together with some S&D parties, whose greater part is instead assigned to cluster 1, which is probably the most heterogeneous. Cluster 2 is constituted mainly by EPP parties, together with a numerous minority of liberal parties, that are mainly assigned to cluster 4, as already anticipated. Finally, notice how *all* ID parties are assigned to cluster 5, together with most of ECR parties. 
+
+\newpage
+
+##### Focus on Italy. 
+
+In conclusion, let's see how Italian parties were classified according to K-means. 
+
+```{r IT1}
+IT <- cbind(dta[69:76,1:2], Cluster = factor(km.out$cluster[69:76]), 
+            Comp.1 = -pca.out$scores[69:76,1], Comp.2 = pca.out$scores[69:76,2])
+
+ggplot(IT, aes(x=Comp.1, y=Comp.2, color=Cluster)) + 
+  geom_point(aes(color=Cluster), size=2) +  
+  geom_hline(aes(yintercept=0), lty='dashed') + theme_minimal() +
+  geom_vline(aes(xintercept=0), lty='dashed') + geom_text_repel(label=IT$party, show.legend = F)
+```
+
+We can say K-means performed pretty good in the Italian context: LN and FdI were clustered together, and indeed they have very similar position and are part of the same coalition. FI, an ally of LN and FdI, was instead placed in cluster 2, because in fact it is a more moderate party. In the same way, PD and SI are all in cluster 3, as they are the two main Italian left parties. Even though it is typically an ally of PD, SVP is placed in the same cluster as FI. RI, the only liberal Italian party in the data set, is placed in the liberals' cluster. Finally, M5S is the only Italian party in cluster 1, confirming the fact that it is a somehow unique party in the Italian political scene. 
+
+\newpage
+
+# Hierarchical clustering
+
+Differently from K-means, hierarchical clustering does not require to pre-specify the number of clusters in which we want the data set to be partitioned. In fact, hierarchical clustering provide a wide variety of solutions, from the one in which each single observation constitutes a cluster to the one in which all the observations belong to a single cluster. All these possibilities are represented through a dendrogram, that is an upside-down tree, which is then cut at the desired level to give a certain number of clusters.\
+Hierarchical clustering starts by considering each observation as a single cluster, and then groups together the observations and/or the clusters which are more similar to each other. There are many ways in which we can define this measure of similarity; in our case, we will use Euclidean distance as a measure of similarity between observations, and complete linkage for inter-cluster dissimilarity. We plot below the dendrogram obtained after scaling the original variables. 
+
+```{r Dendrogram, warning=FALSE}
+dist.dta <- dist(scale(dta[,-c(1:3)]))
+
+hc.complete <- hclust(dist.dta)
+hcd <- as.dendrogram(hc.complete)
+
+dend.colors <- dta$EU_Membership[order.dendrogram(hcd)]
+levels(dend.colors) <- c("#0105F4", "#32A1FE", "#009900", "#900000", "#050505", 
+                         "azure3", "#FDD011", "#FC0603", "azure4")
+
+hcd %>% 
+  set("labels", NA) %>% 
+  set("branches_k_color", k = 5) %>%
+  set("leaves_pch", rep(19,9)) %>%
+  set("leaves_col", as.vector(dend.colors)) %>%
+  plot
+   
+abline(h=8, col='red', lty=2, lwd=2)
+```
+
+Five seems to be once again a reasonable number of clusters, as in the case of K-means. The leaves are colored according to the EU parliamentary membership, so that we can gain some intuition about the groups composition. The first cluster (starting from the left) seems to be mainly constituted by liberals, while the second one is rather large, but seems to be related mainly to GUE/NGL, Greens and S&D parties. The third one is the smallest among the five, and collects mainly ECR and ID parties. The last two clusters appear to be rather similar, collecting parties from the right political area. However, while there are some S&D parties in the former, these are completely missing in the latter, suggesting the fifth cluster is slightly more "extremist" than the fourth one. 
+
+To give more precise interpretation, we plot the clusters in the principal components space. 
+
+```{r PCSpace2}
+hc.clusters <- cutree(hc.complete, 5)
+
+#Plot
+fviz_cluster(object = list(data= dta[order.dendrogram(hcd),-c(1:3)], 
+                           cluster = factor(hc.clusters[order.dendrogram(hcd)], levels=c(2,1,5,3,4))), 
+             main='Hierarchical clustering clusters',
+             geom = 'point', shape=19, ggtheme = theme_minimal(), show.clust.cent=FALSE, pointsize=2) +
+  geom_hline(aes(yintercept=0), linetype='dashed') +
+  geom_vline(aes(xintercept=0), linetype='dashed')
+```
+
+Indeed, **cluster 2** (the first on the left in the dendrogram) looks very similar to the fourth cluster of K-means, which was related to liberals. As anticipated, **cluster 1** is comprehensive of the left-wing political area, varying from the ones most on the left to the center-left. Instead, the situation in the right political area is more fragmented: in this case parties are in fact distributed along the vertical axis. **Cluster 3** is the most moderate on the right side, while the other two are more extreme in terms of cultural values, but show rather different views for what concerns the economy: while **cluster 4** is more conservative (being more or less aligned with liberals), **cluster 5** seems to support economic policies that are typical of the GUE/NGL area. 
+
+\newpage
+
+To conclude, let's verify if there is some correspondence between hierarchical clustering clusters and EU parliamentary membership. 
+
+```{r Heatmap2}
+df <- melt(table("EU_Membership"=dta$EU_Membership, "Cluster"=hc.clusters))
+
+ggplot(df, aes(Cluster, EU_Membership, fill=value)) + geom_tile(color='black') +
+  geom_text(aes(label = value), color = "black", size = 4) + scale_fill_gradient(low="white",high="brown3") + 
+  theme_minimal()
+```
+
+The heatmap confirms our previous interpretation: cluster 1 is mainly composed of S&D, GUE/NGL and Green parties; cluster 2 is essentially composed of liberals, while cluster 3 gathers the center-right parties (EPP group). Cluster 4 and 5 are more similar, but we can see that the most extremist parties (ID and the majority of ECR) are grouped in the fifth cluster. 
+
+\newpage
+
+##### Focus on Italy. 
+
+Hierarchical clustering dendrogram has also a nice interpretable feature: the earlier (i.e., lower in the tree) a fusion occurs, the more similar are the groups of observations fused together; on the contrary, fusions that happen near the top of the tree can cluster together rather different observations. Therefore, it may be interesting to see where Italian parties clustered together are fused in the tree. 
+
+```{r ITDendrogram, fig.height=4}
+all.labs <- dta[order.dendrogram(hcd),2]
+
+#Removing duplicates
+all.labs[c(233, 126)] <- ""
+
+labs.tp <- dta[69:76, 2]
+all.labs[ !(all.labs %in% labs.tp) ] <- ""
+
+cols <- factor(all.labs)
+levels(cols) <- c("#FFFFFF", "#0105F4", "#32A1FE", "#050505", "azure3", 
+                  "#FC0603", "#FDD011", "#900000", "#32A1FF")
+
+sizes <- ifelse(all.labs=="", 0, 0.5)
+shapes <- ifelse(all.labs=="", 4, 19)
+
+hcd %>% 
+  set("labels", all.labs) %>% 
+  set("branches_k_color", k = 5) %>%
+  set("leaves_pch", shapes) %>%
+  set("leaves_cex", sizes) %>% 
+  set("leaves_col", as.vector(cols)) %>%
+  plot()
+
+#hcd[[2]][[2]][[2]]
+abline(h=7.594251, lty=2, col='blue')
+#hcd[[1]][[2]][[2]]
+abline(h=6.373246, lty=2, col='grey50')
+#hcd[[1]][[2]][[2]][[2]][[2]]
+abline(h=4.963082, lty=2, col='red')
+```
+
+```{r FocusCluster1, fig.height=4}
+hcd[[1]][[2]] %>% 
+  set("labels", all.labs[30:126]) %>% 
+  set("branches_col", "#A3A500") %>%
+  set("leaves_pch", shapes[30:126]) %>%
+  set("leaves_cex", sizes[30:126]) %>% 
+  set("leaves_col", as.vector(cols)[30:126]) %>%
+  plot(main='Focus on cluster 1')
+
+abline(h=4.963082, lty=2, col='red')
+abline(h=6.373246, lty=2, col='grey50')
+```
+
+```{r FocusCluster4, fig.height=4}
+hcd[[2]][[2]][[2]] %>% 
+  set("labels", all.labs[206:237]) %>% 
+  set("branches_col", "#E76BF3") %>%
+  set("leaves_pch", shapes[206:237]) %>%
+  set("leaves_cex", sizes[206:237]) %>% 
+  set("leaves_col", as.vector(cols)[206:237]) %>%
+  plot(main='Focus on cluster 4')
+
+abline(h=7.594251, lty=2, col='blue')
+```
+
+RI, FdI and SVP are the only Italian parties in cluster 2, 5 and 3 respectively, so we cannot say much about the height of their fusion with other parties. PD and SI are the first two Italian parties to be grouped together (red line); however, the fusion happens at a height of around 5, which is later than one might expect. However, as it is evident in the principal components subspace shown below, PD is a much more moderate party than SI, and so it is reasonable that the fusion happens relatively late in the tree. Differently from before, M5S is now part of the same cluster as PD and SI, but the fusion happens at a rather large height (grey line): around 6, that is the second split of that cluster. This suggest that, even though they are clustered together, M5S is a rather different party than PD and SI.\
+Surprisingly, we notice LN is clustered with FI and not with FdI. However, the fusion between those two parties happens at the very first split of their cluster (blue line), so these two parties are not very similar.\
+In fact, as shown by the plot below, LN is right at the border of cluster 4, while SI, PD and M5S, even though clustered together, are in really different area of their group. 
+
+```{r PC}
+fviz_cluster(object = list(data= dta[order.dendrogram(hcd),-c(1:3)], 
+                           cluster = factor(hc.clusters[order.dendrogram(hcd)], levels=c(2,1,5,3,4))), 
+             main='Hierarchical clustering clusters',
+             geom = 'point', shape=19, ggtheme = theme_minimal(), show.clust.cent=FALSE, pointsize=2) +
+  geom_hline(aes(yintercept=0), linetype='dashed') +
+  geom_vline(aes(xintercept=0), linetype='dashed') +
+  geom_text(aes(label = all.labs))
+```
+
+\newpage
+
+# Conclusion
+
+Hierarchical clustering and K-means are based on two rather different assumptions: while in the former we implicitly assume there is a hierarchical structure of clusters (clusters obtained by cutting the dendrogram at a given height are necessarily nested within the clusters obtained by cutting the dendrogram at any greater height), in the latter we specify a priori the number of clusters we want to obtain. Let's now visualize, through the use of a heatmap, if and how the clusters obtained with these two approaches differ. 
+
+```{r Comparison}
+df <- melt(table("K.means"=km.out$cluster, "H.Clustering"=hc.clusters))
+
+ggplot(df, aes(K.means, H.Clustering, fill=value)) + geom_tile(color='black') +
+  geom_text(aes(label = value), color = "black", size = 4) + scale_fill_gradient(low="white",high="brown3") + 
+  theme_minimal()
+```
+
+Indeed, we observe some correspondence. All observations of HC cluster 5 are clustered in KM cluster 5, and the same holds for HC cluster 2 and KM cluster 4. On the contrary, KM cluster 2 (moderate right-wing parties) is split between cluster 3 (moderate right-wing parties) and 4 (economic-conservative right-wing parties) of HC and, in a similar way, almost all the observations of HC cluster 1 (left parties) are split between KM cluster 1 (moderate left-wing parties) and 3 (left wing parties). 
+
+Moreover, as well-shown by the plot below, K-means clusters all share a similar size, while groups resulting from hierarchical clustering have very different cardinality. 
+
+```{r SizeComparison}
+cardinality <- data.frame(Cluster=rep(1:5,2), Method=rep(c("K-means", "H.Clustering"),each=5),
+                          Observations=rep(NA, 10))
+
+for (i in 1:5) {
+  cardinality[i, 'Observations'] <- length(km.out$cluster[km.out$cluster==i])
+}
+
+for(i in 1:5) {
+  cardinality[5+i, 'Observations'] <- length(hc.clusters[hc.clusters==i])
+}
+
+ggplot(data=cardinality, aes(x=Cluster, y=Observations, fill=Method)) +
+  geom_bar(stat="identity", color="black",position=position_dodge())+
+  geom_text(aes(label=Observations), vjust=1.6,
+            position = position_dodge(0.9), size=3.5)+
+  scale_fill_brewer(palette="Set3")+ theme_minimal() + 
+  labs(title="Clusters cardinality")
+```
+
+In conclusion, we would say that, for this data set, K-means tends to produce more balanced and more interpretable clusters than hierarchical clustering. 
+
+\newpage
+
+# Key findings
+
+*Principal Component Analysis* allowed us to draw a nice visualization of political parties position in a bi-dimensional space, defined by: 
+
+1. A cultural dimension. We found left parties tends to be clustered on the left of this axis, while right parties are mainly on the right. Liberals are more centered, but most of them are on the left. 
+2. An economic-related dimension. We found most "extremist" parties (GUE/NGL and ID) to be on the negative side of that axis, moderate parties (EPP and S&D) to be more or less centered, and economic-conservative parties (Liberals and ECR) to be on the positive side of that dimension. 
+
+Moreover, we notice there is much overlapping between different groups (especially at the center), a characteristic that is almost totally missing in the groups obtained through the clustering methods we applied. More precisely, *K-means* produced a more interpretable partition of EU parties than *hierarchical clustering*. In both cases, 5 clusters seemed to be a reasonable choice to adequately represent the parties' variability in the 17 features measured by the data set. In particular, 5-means produced a nice partition where: 
+
+* Cluster 1 represents center-left political area;
+* Cluster 2 represents center-right political area; 
+* Cluster 3 represents the most left-wing political area; 
+* Cluster 4 represents the liberal area (conservative in terms of economy, progressive in terms of cultural values);
+* Cluster 5 represents the most right-wing political area. 
